@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>FOOMED Banner</title>
+  <style>
+    body {
+      margin: 0;
+      background: #161b22;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: monospace;
+    }
+    canvas {
+      border-radius: 8px;
+    }
+    #controls {
+      margin-top: 14px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      color: #8b949e;
+      font-size: 13px;
+    }
+    button {
+      background: transparent;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 5px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 13px;
+    }
+    button:hover { background: #21262d; }
+    input[type=range] { width: 80px; vertical-align: middle; }
+    #phase { color: #58a6ff; }
+  </style>
+</head>
+<body>
+
+<canvas id="c" width="900" height="225"></canvas>
+
+<div id="controls">
+  <button id="btn">Restart</button>
+  <label>Speed:
+    <input type="range" id="spd" min="1" max="5" value="2" step="1">
+  </label>
+  <span id="phase">Phase 1 — awakening</span>
+</div>
+
+<script>
+
+// ============================================================
+//  CONFIGURATION — tweak these values to change the look
+// ============================================================
+
+const CONFIG = {
+  canvasW: 900,
+  canvasH: 225,
+  bg: '#0d1117',
+
+  // Contribution blocks
+  blockSize: 18,
+  blockGap: 5,
+  blockColor: '#39d353',
+
+  // Glowing circle
+  circleColor: '#570079',
+  circleGlow: '#bd17fe',
+  circleRadius: 10,
+
+  // Neural network
+  neuralEdgeColor: '#800080',
+  neuralEdgeAlpha: 0.18,
+  neuralNodeAlpha: 0.28,
+
+  // Subtitle
+  subtitle: 'Code • Learn • Create',
+  subtitleColor: '#8b949e',
+};
+
+const STEP = CONFIG.blockSize + CONFIG.blockGap;
+
+// ============================================================
+//  FOOMED LETTER DEFINITIONS
+//  Each letter is a 5-row grid. 1 = block, 0 = empty.
+//  Edit these arrays to change letter shapes.
+// ============================================================
+
+const LETTERS = {
+  F: [
+    [1, 1, 1],
+    [1, 0, 0],
+    [1, 1, 1],
+    [1, 0, 0],
+    [1, 0, 0],
+  ],
+  O: [
+    [1, 1, 1],
+    [1, 0, 1],
+    [1, 0, 1],
+    [1, 0, 1],
+    [1, 1, 1],
+  ],
+  M: [
+    [1, 0, 1],
+    [1, 1, 1],
+    [1, 1, 1],
+    [1, 0, 1],
+    [1, 0, 1],
+  ],
+  E: [
+    [1, 1, 1],
+    [1, 0, 0],
+    [1, 1, 1],
+    [1, 0, 0],
+    [1, 1, 1],
+  ],
+  D: [
+    [1, 1, 0],
+    [1, 0, 1],
+    [1, 0, 1],
+    [1, 0, 1],
+    [1, 1, 0],
+	],
+  N: [
+  [1, 0, 1],
+  [1, 1, 1],
+  [1, 0, 1],
+  [1, 0, 1],
+  [1, 0, 1],
+	],
+  A: [
+    [0, 1, 0],
+    [1, 0, 1],
+    [1, 1, 1],
+    [1, 0, 1],
+    [1, 0, 1],
+  ],
+  S: [
+    [0, 1, 1],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+    [1, 1, 0],
+  ],
+};
+
+const WORD = ['F', 'O', 'O', 'M', 'E', 'D'];
+const COL_WIDTHS = [3, 3, 3, 3, 3, 3]; // columns per letter
+const COL_GAP = 2;                       // gap columns between letters
+
+// ============================================================
+//  BUILD TARGET POSITIONS FOR FOOMED BLOCKS
+// ============================================================
+
+function buildTargets() {
+  const targets = [];
+  const totalCols = COL_WIDTHS.reduce((a, b) => a + b, 0)
+    + COL_GAP * (WORD.length - 1);
+  const startX = Math.floor((CONFIG.canvasW - totalCols * STEP) / 2);
+  const startY = Math.floor((CONFIG.canvasH - 5 * STEP) / 2) - 10;
+
+  let col = 0;
+  for (let li = 0; li < WORD.length; li++) {
+    const L = LETTERS[WORD[li]];
+    for (let row = 0; row < 5; row++) {
+      for (let c = 0; c < COL_WIDTHS[li]; c++) {
+        if (L[row][c]) {
+          targets.push({
+            x: startX + col * STEP + c * STEP,
+            y: startY + row * STEP,
+          });
+        }
+      }
+    }
+    col += COL_WIDTHS[li] + COL_GAP;
+  }
+  return targets;
+}
+
+const targets = buildTargets();
+const N = targets.length;
+
+// ============================================================
+//  NEURAL NETWORK SHAPE
+//  These are the node positions (two brain lobes).
+//  Move these x/y values to reshape the brain.
+// ============================================================
+// Replace buildNodes() and EDGES with this:
+
+function buildNeamsPath() {
+  const word = ['N', 'E', 'A', 'M', 'S'];
+  const colWidths = [3, 3, 3, 3, 3];
+  const colGap = 2;
+  const totalCols = colWidths.reduce((a, b) => a + b, 0) + colGap * (word.length - 1);
+  const startX = Math.floor((CONFIG.canvasW - totalCols * STEP) / 2);
+  const startY = Math.floor((CONFIG.canvasH - 5 * STEP) / 2) - 10;
+
+  const points = [];
+  let col = 0;
+  for (let li = 0; li < word.length; li++) {
+    const L = LETTERS[word[li]];
+    for (let row = 0; row < 5; row++) {
+      for (let c = 0; c < colWidths[li]; c++) {
+        if (L[row][c]) {
+          points.push({
+            x: startX + col * STEP + c * STEP + CONFIG.blockSize / 2,
+            y: startY + row * STEP + CONFIG.blockSize / 2,
+          });
+        }
+      }
+    }
+    col += colWidths[li] + colGap;
+  }
+  return points;
+}
+
+const NEAMS_POINTS = buildNeamsPath();
+const NODES = NEAMS_POINTS; // keeps rest of code working
+const EDGES = [];            // no lines between nodes needed
+// ============================================================
+//  BUILD CIRCLE PATH (visits every node via nearest neighbour)
+// ============================================================
+
+function buildPath() {
+  const path = [];
+
+  const STROKES = {
+    N: [[[0,4],[0,0],[2,4],[2,0]]],
+    E: [[[2,0],[0,0],[0,2],[2,2]], [[0,2],[0,4],[2,4]]],
+    A: [[[0,4],[0,1],[1,0],[2,1],[2,4]],[[0,2],[2,2]],],
+    M: [[[0,4],[0,0],[1,2],[2,0],[2,4]]],
+    S: [[[2,0],[0,0],[0,2],[2,2],[2,4],[0,4]]],
+  };
+
+  const word = ['N','E','A','M','S'];
+  const colWidths = [3,3,3,3,3];
+  const colGap = 2;
+  const totalCols = colWidths.reduce((a,b)=>a+b,0) + colGap*(word.length-1);
+  const startX = Math.floor((CONFIG.canvasW - totalCols * STEP) / 2);
+  const startY = Math.floor((CONFIG.canvasH - 5 * STEP) / 2) - 10;
+
+  let col = 0;
+  for (let li = 0; li < word.length; li++) {
+    const letterStrokes = STROKES[word[li]];
+    const ox = startX + col * STEP;
+    const oy = startY;
+
+    for (const stroke of letterStrokes) {
+      for (let si = 0; si < stroke.length - 1; si++) {
+        const [c1, r1] = stroke[si];
+        const [c2, r2] = stroke[si + 1];
+        const x1 = ox + c1 * STEP + CONFIG.blockSize / 2;
+        const y1 = oy + r1 * STEP + CONFIG.blockSize / 2;
+        const x2 = ox + c2 * STEP + CONFIG.blockSize / 2;
+        const y2 = oy + r2 * STEP + CONFIG.blockSize / 2;
+        const dist = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
+        const steps = Math.ceil(dist / 4);
+        for (let s = 0; s <= steps; s++) {
+          path.push({
+            x: x1 + (x2 - x1) * (s / steps),
+            y: y1 + (y2 - y1) * (s / steps),
+          });
+        }
+      }
+      const last = path[path.length - 1];
+      for (let p = 0; p < 12; p++) path.push({ ...last });
+    }
+    col += colWidths[li] + colGap;
+  }
+  return path;
+}
+
+const PATH = buildPath();
+// ============================================================
+//  MAP PATH POINTS TO GRID BLOCKS
+// ============================================================
+
+function snap(v) { return Math.round(v / STEP) * STEP; }
+
+const blockSet = [];
+const blockMap = new Map();
+
+for (const p of PATH) {
+  const bx = snap(p.x - CONFIG.blockSize / 2);
+  const by = snap(p.y - CONFIG.blockSize / 2);
+  if (bx < 0 || bx > CONFIG.canvasW - CONFIG.blockSize) continue;
+  if (by < 0 || by > CONFIG.canvasH - CONFIG.blockSize) continue;
+  const key = bx + ',' + by;
+  if (!blockMap.has(key)) {
+    blockMap.set(key, blockSet.length);
+    blockSet.push({ x: bx, y: by, lit: false, alpha: 0, pulseT: 0 });
+  }
+}
+
+// Record at which path index each block first gets lit
+const blockLitAt = new Array(blockSet.length).fill(-1);
+for (let pi = 0; pi < PATH.length; pi++) {
+  const bx = snap(PATH[pi].x - CONFIG.blockSize / 2);
+  const by = snap(PATH[pi].y - CONFIG.blockSize / 2);
+  const key = bx + ',' + by;
+  if (blockMap.has(key)) {
+    const bi = blockMap.get(key);
+    if (blockLitAt[bi] === -1) blockLitAt[bi] = pi;
+  }
+}
+
+// Working positions used during assembly animation
+const bpos = Array.from({ length: targets.length }, (_, i) => {
+  const bi = i % blockSet.length;
+  return { x: blockSet[bi].x, y: blockSet[bi].y };
+});
+
+// ============================================================
+//  ANIMATION STATE
+// ============================================================
+
+let phase = 1;
+let phaseT = 0;
+let pathIdx = 0;
+let subtitleAlpha = 0;
+let speedMult = 2;
+let circ = { x: PATH[0].x, y: PATH[0].y };
+
+const phaseNames = [
+  '',
+  'Phase 1 — awakening',
+  'Phase 2 — tracing neural network',
+  'Phase 3 — assembling',
+  'Phase 4 — identity',
+];
+
+function reset() {
+  phase = 1; phaseT = 0; pathIdx = 0; subtitleAlpha = 0;
+  circ.x = PATH[0].x; circ.y = PATH[0].y;
+  for (let i = 0; i < blockSet.length; i++) {
+    blockSet[i].lit = false;
+    blockSet[i].alpha = 0;
+    blockSet[i].pulseT = 0;
+    bpos[i].x = blockSet[i].x;
+    bpos[i].y = blockSet[i].y;
+  }
+  document.getElementById('phase').textContent = phaseNames[1];
+}
+
+// ============================================================
+//  DRAW HELPERS
+// ============================================================
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+function drawBlock(x, y, alpha, color) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color || CONFIG.blockColor;
+  ctx.beginPath();
+  ctx.roundRect(x, y, CONFIG.blockSize, CONFIG.blockSize, 3);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function drawCircle(x, y, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = CONFIG.circleGlow;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = CONFIG.circleColor;
+  ctx.beginPath();
+  ctx.arc(x, y, CONFIG.circleRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+}
+
+function drawNeuralBg(alpha) {
+  ctx.globalAlpha = alpha * CONFIG.neuralEdgeAlpha;
+  ctx.strokeStyle = CONFIG.neuralEdgeColor;
+  ctx.lineWidth = 1;
+  for (const [i, j] of EDGES) {
+    ctx.beginPath();
+    ctx.moveTo(NODES[i].x, NODES[i].y);
+    ctx.lineTo(NODES[j].x, NODES[j].y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = alpha * CONFIG.neuralNodeAlpha;
+  ctx.fillStyle = CONFIG.neuralEdgeColor;
+  for (const n of NODES) {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+//  MAIN ANIMATION LOOP
+// ============================================================
+
+function tick() {
+  const sm = speedMult;
+  ctx.fillStyle = CONFIG.bg;
+  ctx.fillRect(0, 0, CONFIG.canvasW, CONFIG.canvasH);
+
+  // --- PHASE 1: Circle fades in ---
+  if (phase === 1) {
+    phaseT += sm;
+    const a = Math.min(1, phaseT / 50);
+    drawNeuralBg(a * 0.5);
+    drawCircle(circ.x, circ.y, a);
+    if (phaseT > 80) {
+      phase = 2; phaseT = 0;
+      document.getElementById('phase').textContent = phaseNames[2];
+    }
+
+  // --- PHASE 2: Circle traces neural network, blocks pulse on ---
+  } else if (phase === 2) {
+    for (let s = 0; s < sm; s++) {
+      pathIdx = Math.min(pathIdx + 1, PATH.length - 1);
+      circ.x = PATH[pathIdx].x;
+      circ.y = PATH[pathIdx].y;
+      // Light up any blocks the circle has reached
+      for (let bi = 0; bi < blockSet.length; bi++) {
+        if (!blockSet[bi].lit && blockLitAt[bi] <= pathIdx) {
+          blockSet[bi].lit = true;
+          blockSet[bi].pulseT = 0;
+        }
+      }
+    }
+    // Animate pulse for each lit block
+    for (const b of blockSet) {
+      if (!b.lit) continue;
+      b.pulseT += 0.12 * sm;
+      if (b.pulseT < 1)        b.alpha = b.pulseT;                          // fade in
+      else if (b.pulseT < 1.5) b.alpha = 0.5 + 0.5 * Math.sin((b.pulseT - 1) * Math.PI * 4); // flash
+      else                     b.alpha = 0.75;                               // settle
+    }
+    drawNeuralBg(1);
+    for (let bi = 0; bi < blockSet.length; bi++) {
+      if (blockSet[bi].lit) drawBlock(bpos[bi].x, bpos[bi].y, blockSet[bi].alpha, '#800080');
+    }
+    drawCircle(circ.x, circ.y, 1);
+    if (pathIdx >= PATH.length - 1 && blockSet.every(b => b.lit)) {
+      phase = 3; phaseT = 0;
+      document.getElementById('phase').textContent = phaseNames[3];
+    }
+
+  // --- PHASE 3: Blocks slide from brain shape into FOOMED ---
+  } else if (phase === 3) {
+    phaseT += sm;
+    const raw = Math.min(1, phaseT / 180);
+    // Ease in-out curve — makes movement feel natural, not robotic
+    const ease = raw < 0.5
+      ? 2 * raw * raw
+      : -1 + (4 - 2 * raw) * raw;
+
+    for (const b of blockSet) b.alpha = Math.min(1, b.alpha + 0.02 * sm);
+    drawNeuralBg(Math.max(0, 1 - phaseT / 60));
+
+    for (let i = 0; i < targets.length; i++) {
+	  const bi = i % blockSet.length;
+	  const t = targets[i];
+	  bpos[i] = bpos[i] || { x: bpos[bi].x, y: bpos[bi].y };
+	  bpos[i].x += (t.x - bpos[i].x) * ease * 0.06 * sm;
+	  bpos[i].y += (t.y - bpos[i].y) * ease * 0.06 * sm;
+	  drawBlock(bpos[i].x, bpos[i].y, blockSet[bi].alpha);
+	}
+    const circFade = Math.max(0, 1 - phaseT / 40);
+    if (circFade > 0) drawCircle(circ.x, circ.y, circFade);
+    if (phaseT > 200) {
+      phase = 4; phaseT = 0;
+      document.getElementById('phase').textContent = phaseNames[4];
+    }
+
+  // --- PHASE 4: FOOMED holds, subtitle fades in ---
+  } else if (phase === 4) {
+    phaseT += sm;
+    subtitleAlpha = Math.min(1, (phaseT - 20) / 60);
+    for (let i = 0; i < targets.length; i++) {
+	  const t = targets[i];
+	  bpos[i] = bpos[i] || { x: bpos[i % blockSet.length].x, y: bpos[i % blockSet.length].y };
+	  bpos[i].x += (t.x - bpos[i].x) * 0.12;
+	  bpos[i].y += (t.y - bpos[i].y) * 0.12;
+	  drawBlock(bpos[i].x, bpos[i].y, 1);
+	}
+    if (subtitleAlpha > 0) {
+      ctx.globalAlpha = subtitleAlpha;
+      ctx.fillStyle = CONFIG.subtitleColor;
+      ctx.font = '500 13px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(CONFIG.subtitle, CONFIG.canvasW / 2, CONFIG.canvasH - 18);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  requestAnimationFrame(tick);
+}
+
+// ============================================================
+//  CONTROLS
+// ============================================================
+
+document.getElementById('btn').addEventListener('click', reset);
+document.getElementById('spd').addEventListener('input', e => {
+  speedMult = parseInt(e.target.value);
+});
+
+reset();
+tick();
+
+</script>
+</body>
+</html>
